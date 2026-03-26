@@ -74,7 +74,7 @@ func mergeValues(rawQuery string, body []byte) (url.Values, error) {
 	return values, nil
 }
 
-func decodeShape(reg model.Registry, values url.Values, shapeName string, prefix string, parentMember string) (any, bool, error) {
+func decodeShape(reg model.Registry, values url.Values, shapeName, prefix, parentMember string) (any, bool, error) {
 	shape := reg.MustShape(shapeName)
 	switch shape.Type {
 	case "structure":

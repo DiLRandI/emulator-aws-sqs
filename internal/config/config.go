@@ -84,7 +84,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func envOr(key string, fallback string) string {
+func envOr(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}

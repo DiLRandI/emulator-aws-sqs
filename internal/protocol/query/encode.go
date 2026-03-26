@@ -13,7 +13,7 @@ import (
 	"emulator-aws-sqs/internal/protocol"
 )
 
-func EncodeResponse(reg model.Registry, operation string, requestID string, resp protocol.Response) (int, http.Header, []byte, error) {
+func EncodeResponse(reg model.Registry, operation, requestID string, resp protocol.Response) (int, http.Header, []byte, error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "text/xml")
 	var body bytes.Buffer
@@ -71,7 +71,7 @@ func EncodeError(requestID string, err error) (int, http.Header, []byte) {
 	return apiErr.HTTPStatusCode, headers, body.Bytes()
 }
 
-func encodeShape(buf *bytes.Buffer, reg model.Registry, shapeName string, value any, parentMember string, explicitName string) error {
+func encodeShape(buf *bytes.Buffer, reg model.Registry, shapeName string, value any, parentMember, explicitName string) error {
 	shape := reg.MustShape(shapeName)
 	switch shape.Type {
 	case "structure":
@@ -158,7 +158,7 @@ func encodeShape(buf *bytes.Buffer, reg model.Registry, shapeName string, value 
 				buf.WriteString("false")
 			}
 		default:
-			xml.EscapeText(buf, []byte(fmt.Sprint(typed)))
+			xml.EscapeText(buf, fmt.Append(nil, typed))
 		}
 	}
 	return nil

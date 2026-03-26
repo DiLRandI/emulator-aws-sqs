@@ -110,7 +110,7 @@ type Service struct {
 	accountID      string
 }
 
-func NewService(mode string, clk clock.Clock, registry *Registry, allowedRegions []string, fallbackRegion string, accountID string) *Service {
+func NewService(mode string, clk clock.Clock, registry *Registry, allowedRegions []string, fallbackRegion, accountID string) *Service {
 	allowed := make(map[string]struct{}, len(allowedRegions))
 	for _, region := range allowedRegions {
 		allowed[region] = struct{}{}
@@ -249,7 +249,7 @@ func (s *Service) authenticateQuerySigned(r *http.Request, body []byte) (protoco
 	return identity, nil
 }
 
-func (s *Service) lookupIdentity(accessKeyID string, sessionToken string) (Credential, protocol.Identity, error) {
+func (s *Service) lookupIdentity(accessKeyID, sessionToken string) (Credential, protocol.Identity, error) {
 	cred, ok := s.registry.Get(accessKeyID)
 	if !ok {
 		return Credential{}, protocol.Identity{}, apierrors.ErrInvalidSecurity.WithCause(fmt.Errorf("unknown access key"))
@@ -312,7 +312,7 @@ func parseCredentialScope(raw string) (credentialScope, error) {
 
 func parseAuthFields(raw string) map[string]string {
 	fields := map[string]string{}
-	for _, field := range strings.Split(raw, ",") {
+	for field := range strings.SplitSeq(raw, ",") {
 		field = strings.TrimSpace(field)
 		parts := strings.SplitN(field, "=", 2)
 		if len(parts) != 2 {

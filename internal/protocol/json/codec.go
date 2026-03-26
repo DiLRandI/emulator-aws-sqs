@@ -29,7 +29,7 @@ func DecodeRequest(reg model.Registry, r *http.Request, body []byte) (string, ma
 	return action, normalizeNumbers(payload).(map[string]any), nil
 }
 
-func EncodeResponse(reg model.Registry, operation string, requestID string, resp protocol.Response) (int, http.Header, []byte, error) {
+func EncodeResponse(reg model.Registry, operation, requestID string, resp protocol.Response) (int, http.Header, []byte, error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/x-amz-json-1.0")
 	headers.Set("x-amzn-RequestId", requestID)

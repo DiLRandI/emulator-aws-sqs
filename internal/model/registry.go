@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -35,17 +36,12 @@ func (r Registry) MustShape(name string) Shape {
 	return shape
 }
 
-func (r Registry) HasEnum(shapeName string, value string) bool {
+func (r Registry) HasEnum(shapeName, value string) bool {
 	shape, ok := r.Shape(shapeName)
 	if !ok || len(shape.Enum) == 0 {
 		return false
 	}
-	for _, candidate := range shape.Enum {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(shape.Enum, value)
 }
 
 func (r Registry) RequiredMembers(shapeName string) map[string]struct{} {

@@ -142,7 +142,7 @@ func writeResponse(w http.ResponseWriter, status int, headers http.Header, paylo
 	}
 }
 
-func (h Handler) log(message string, requestID string, wire protocol.WireProtocol, action string, err error) {
+func (h Handler) log(message, requestID string, wire protocol.WireProtocol, action string, err error) {
 	if h.Logger == nil {
 		return
 	}

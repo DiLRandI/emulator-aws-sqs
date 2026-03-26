@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
 	"sort"
@@ -29,6 +30,13 @@ func NewSQS(store storage.Store, clk clock.Clock, cfg config.Config) *Dispatcher
 	svc := &SQS{store: store, clock: clk, cfg: cfg}
 	dispatcher := NewDispatcher()
 	dispatcher.Register("CreateQueue", svc.CreateQueue)
+	dispatcher.Register("SendMessage", svc.SendMessage)
+	dispatcher.Register("SendMessageBatch", svc.SendMessageBatch)
+	dispatcher.Register("ReceiveMessage", svc.ReceiveMessage)
+	dispatcher.Register("DeleteMessage", svc.DeleteMessage)
+	dispatcher.Register("DeleteMessageBatch", svc.DeleteMessageBatch)
+	dispatcher.Register("ChangeMessageVisibility", svc.ChangeMessageVisibility)
+	dispatcher.Register("ChangeMessageVisibilityBatch", svc.ChangeMessageVisibilityBatch)
 	dispatcher.Register("DeleteQueue", svc.DeleteQueue)
 	dispatcher.Register("GetQueueUrl", svc.GetQueueURL)
 	dispatcher.Register("ListQueues", svc.ListQueues)
@@ -108,7 +116,7 @@ func (s *SQS) CreateQueue(ctx context.Context, req protocol.Request) (protocol.R
 }
 
 func (s *SQS) DeleteQueue(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -177,7 +185,7 @@ func (s *SQS) ListQueues(ctx context.Context, req protocol.Request) (protocol.Re
 }
 
 func (s *SQS) GetQueueAttributes(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -192,12 +200,13 @@ func (s *SQS) GetQueueAttributes(ctx context.Context, req protocol.Request) (pro
 	if len(requested) == 0 {
 		requested = []string{"All"}
 	}
-	attrs := materializeQueueAttributes(queue)
+	attrs, err := s.materializeQueueAttributes(ctx, queue, s.clock.Now())
+	if err != nil {
+		return protocol.Response{}, err
+	}
 	result := map[string]string{}
 	if containsFold(requested, "All") {
-		for key, value := range attrs {
-			result[key] = value
-		}
+		maps.Copy(result, attrs)
 	} else {
 		for _, key := range requested {
 			if value, ok := attrs[key]; ok {
@@ -209,7 +218,7 @@ func (s *SQS) GetQueueAttributes(ctx context.Context, req protocol.Request) (pro
 }
 
 func (s *SQS) SetQueueAttributes(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -241,7 +250,7 @@ func (s *SQS) SetQueueAttributes(ctx context.Context, req protocol.Request) (pro
 }
 
 func (s *SQS) TagQueue(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -249,9 +258,7 @@ func (s *SQS) TagQueue(ctx context.Context, req protocol.Request) (protocol.Resp
 	if err != nil {
 		return protocol.Response{}, apierrors.Internal("failed to list tags", err)
 	}
-	for key, value := range stringMapValue(req.Input, "Tags") {
-		current[key] = value
-	}
+	maps.Copy(current, stringMapValue(req.Input, "Tags"))
 	if err := s.store.ReplaceTags(ctx, queue.ID, current); err != nil {
 		return protocol.Response{}, apierrors.Internal("failed to store tags", err)
 	}
@@ -259,7 +266,7 @@ func (s *SQS) TagQueue(ctx context.Context, req protocol.Request) (protocol.Resp
 }
 
 func (s *SQS) UntagQueue(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -270,7 +277,7 @@ func (s *SQS) UntagQueue(ctx context.Context, req protocol.Request) (protocol.Re
 }
 
 func (s *SQS) ListQueueTags(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -282,7 +289,7 @@ func (s *SQS) ListQueueTags(ctx context.Context, req protocol.Request) (protocol
 }
 
 func (s *SQS) ListDeadLetterSourceQueues(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -322,7 +329,7 @@ func (s *SQS) ListDeadLetterSourceQueues(ctx context.Context, req protocol.Reque
 }
 
 func (s *SQS) AddPermission(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -385,7 +392,7 @@ func (s *SQS) AddPermission(ctx context.Context, req protocol.Request) (protocol
 }
 
 func (s *SQS) RemovePermission(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -421,7 +428,7 @@ func (s *SQS) RemovePermission(ctx context.Context, req protocol.Request) (proto
 }
 
 func (s *SQS) PurgeQueue(ctx context.Context, req protocol.Request) (protocol.Response, error) {
-	queue, err := s.lookupQueueByURL(ctx, stringValue(req.Input, "QueueUrl"))
+	queue, err := s.lookupQueueForRequest(ctx, req)
 	if err != nil {
 		return protocol.Response{}, err
 	}
@@ -441,6 +448,9 @@ func (s *SQS) PurgeQueue(ctx context.Context, req protocol.Request) (protocol.Re
 }
 
 func (s *SQS) ListMessageMoveTasks(ctx context.Context, req protocol.Request) (protocol.Response, error) {
+	if err := s.maintain(ctx, s.clock.Now()); err != nil {
+		return protocol.Response{}, err
+	}
 	source, err := s.lookupQueueByARN(ctx, stringValue(req.Input, "SourceArn"))
 	if err != nil {
 		return protocol.Response{}, apierrors.ErrResourceNotFoundException
@@ -487,6 +497,9 @@ func (s *SQS) ListMessageMoveTasks(ctx context.Context, req protocol.Request) (p
 }
 
 func (s *SQS) StartMessageMoveTask(ctx context.Context, req protocol.Request) (protocol.Response, error) {
+	if err := s.maintain(ctx, s.clock.Now()); err != nil {
+		return protocol.Response{}, err
+	}
 	source, err := s.lookupQueueByARN(ctx, stringValue(req.Input, "SourceArn"))
 	if err != nil {
 		return protocol.Response{}, apierrors.ErrResourceNotFoundException
@@ -515,14 +528,30 @@ func (s *SQS) StartMessageMoveTask(ctx context.Context, req protocol.Request) (p
 	if maxPerSecond, err := int64Value(req.Input, "MaxNumberOfMessagesPerSecond", 0); err == nil && maxPerSecond > 0 {
 		task.MaxMessagesPerSecond = &maxPerSecond
 	}
+	if sourceMessages, listErr := s.store.ListMessagesByQueue(ctx, source.ID); listErr == nil {
+		remaining := int64(0)
+		now := s.clock.Now()
+		for _, message := range sourceMessages {
+			if message.DeletedAt == nil && message.RetentionDeadline.After(now) {
+				remaining++
+			}
+		}
+		task.ApproximateNumberOfMessagesToMove = &remaining
+	}
 	created, err := s.store.InsertMoveTask(ctx, task)
 	if err != nil {
 		return protocol.Response{}, apierrors.Internal("failed to create move task", err)
+	}
+	if err := s.processMoveTasks(ctx, s.clock.Now()); err != nil {
+		return protocol.Response{}, err
 	}
 	return protocol.Response{Output: map[string]any{"TaskHandle": created.TaskHandle}}, nil
 }
 
 func (s *SQS) CancelMessageMoveTask(ctx context.Context, req protocol.Request) (protocol.Response, error) {
+	if err := s.maintain(ctx, s.clock.Now()); err != nil {
+		return protocol.Response{}, err
+	}
 	handle := stringValue(req.Input, "TaskHandle")
 	source, err := s.lookupQueueByARN(ctx, stringValue(req.Input, "SourceArn"))
 	if err != nil {
@@ -570,11 +599,11 @@ func (s *SQS) lookupQueueByARN(ctx context.Context, queueARN string) (storage.Qu
 	return queue, nil
 }
 
-func (s *SQS) queueURL(accountID string, name string) string {
+func (s *SQS) queueURL(accountID, name string) string {
 	return fmt.Sprintf("%s/%s/%s", s.cfg.PublicBaseURL, accountID, name)
 }
 
-func (s *SQS) queueARN(accountID string, name string) string {
+func (s *SQS) queueARN(accountID, name string) string {
 	return fmt.Sprintf("arn:aws:sqs:%s:%s:%s", s.cfg.Region, accountID, name)
 }
 
@@ -653,9 +682,7 @@ func queueAttributesEquivalent(existing storage.Queue, attrs map[string]string) 
 
 func cloneMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -674,7 +701,7 @@ func onlyRetention(attrs map[string]string) bool {
 	return len(attrs) == 1 && attrs["MessageRetentionPeriod"] != ""
 }
 
-func intBetween(raw string, min int64, max int64) bool {
+func intBetween(raw string, min, max int64) bool {
 	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		return false

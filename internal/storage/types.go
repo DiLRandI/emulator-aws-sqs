@@ -46,6 +46,61 @@ type MoveTask struct {
 	CompletedAt                       *time.Time
 }
 
+type Message struct {
+	RowID                 int64
+	QueueID               int64
+	MessageID             string
+	Body                  string
+	BodyMD5               string
+	MessageAttributes     map[string]any
+	SystemAttributes      map[string]any
+	SentAt                time.Time
+	OriginalSentAt        time.Time
+	FirstReceivedAt       *time.Time
+	ReceiveCount          int64
+	AvailableAt           time.Time
+	VisibilityDeadline    *time.Time
+	RetentionDeadline     time.Time
+	DeletedAt             *time.Time
+	GroupID               string
+	DedupID               string
+	SequenceNumber        string
+	DeadLetterSourceARN   string
+	EncryptionKeyID       string
+	ReceiveAttemptID      string
+	LastReceiptHandle     string
+	CurrentSourceQueueARN string
+}
+
+type Receipt struct {
+	ID                 int64
+	QueueID            int64
+	MessageRowID       int64
+	Handle             string
+	IssuedAt           time.Time
+	VisibilityDeadline time.Time
+	Active             bool
+	ReceiveAttemptID   string
+}
+
+type DedupEntry struct {
+	ID        int64
+	QueueID   int64
+	ScopeKey  string
+	DedupID   string
+	Response  map[string]any
+	ExpiresAt time.Time
+}
+
+type ReceiveAttempt struct {
+	ID            int64
+	QueueID       int64
+	AttemptID     string
+	Response      []map[string]any
+	ExpiresAt     time.Time
+	InvalidatedAt *time.Time
+}
+
 type QueueListPage struct {
 	Queues    []Queue
 	NextToken string
@@ -74,4 +129,21 @@ type Store interface {
 	UpdateMoveTask(context.Context, MoveTask) error
 	ListMoveTasksBySourceQueue(context.Context, int64, int) ([]MoveTask, error)
 	FindRunningMoveTask(context.Context, int64) (MoveTask, bool, error)
+	ListRunningMoveTasks(context.Context) ([]MoveTask, error)
+	InsertMessage(context.Context, Message) (Message, error)
+	UpdateMessage(context.Context, Message) error
+	ListMessagesByQueue(context.Context, int64) ([]Message, error)
+	MessageByRowID(context.Context, int64) (Message, bool, error)
+	DeleteMessagesByQueueBefore(context.Context, int64, time.Time) error
+	DeleteMessagesByQueue(context.Context, int64) error
+	InsertReceipt(context.Context, Receipt) (Receipt, error)
+	UpdateReceipt(context.Context, Receipt) error
+	ReceiptByHandle(context.Context, string) (Receipt, bool, error)
+	DeactivateReceiptsByMessage(context.Context, int64) error
+	InsertDedupEntry(context.Context, DedupEntry) (DedupEntry, error)
+	DedupEntry(context.Context, int64, string, string, time.Time) (DedupEntry, bool, error)
+	DeleteExpiredDedupEntries(context.Context, time.Time) error
+	InsertReceiveAttempt(context.Context, ReceiveAttempt) (ReceiveAttempt, error)
+	ReceiveAttempt(context.Context, int64, string, time.Time) (ReceiveAttempt, bool, error)
+	InvalidateReceiveAttempts(context.Context, int64) error
 }

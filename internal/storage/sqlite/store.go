@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"maps"
 	"strings"
 	"time"
 
@@ -187,9 +188,7 @@ func (s *Store) ApplyDueQueueMutations(ctx context.Context, now time.Time) error
 		if !ok {
 			continue
 		}
-		for key, value := range patch.attrs {
-			queue.Attributes[key] = value
-		}
+		maps.Copy(queue.Attributes, patch.attrs)
 		queue.LastModifiedAt = now.UTC()
 		if err := updateQueueTx(ctx, tx, queue); err != nil {
 			return err
@@ -288,7 +287,7 @@ func updateQueueTx(ctx context.Context, tx *sql.Tx, queue storage.Queue) error {
 	return err
 }
 
-func (s *Store) QueueByName(ctx context.Context, accountID string, region string, name string) (storage.Queue, bool, error) {
+func (s *Store) QueueByName(ctx context.Context, accountID, region, name string) (storage.Queue, bool, error) {
 	return s.scanSingleQueue(ctx, `SELECT * FROM queues WHERE account_id = ? AND region = ? AND name = ?`, accountID, region, name)
 }
 
@@ -315,7 +314,7 @@ func (s *Store) scanSingleQueue(ctx context.Context, query string, args ...any) 
 	return scanQueueRow(row.Scan)
 }
 
-func (s *Store) ListQueues(ctx context.Context, accountID string, region string, prefix string) ([]storage.Queue, error) {
+func (s *Store) ListQueues(ctx context.Context, accountID, region, prefix string) ([]storage.Queue, error) {
 	query := `SELECT id, account_id, region, name, url, arn, fifo, attributes_json, created_at, available_at, last_modified_at, deleted_at, reuse_blocked_till, purge_requested_at, purge_expires_at FROM queues WHERE account_id = ? AND region = ?`
 	args := []any{accountID, region}
 	if prefix != "" {
@@ -339,7 +338,7 @@ func (s *Store) ListQueues(ctx context.Context, accountID string, region string,
 	return out, rows.Err()
 }
 
-func (s *Store) SavePendingAttributes(ctx context.Context, queueID int64, attrs map[string]string, effectiveAt time.Time, submittedAt time.Time) error {
+func (s *Store) SavePendingAttributes(ctx context.Context, queueID int64, attrs map[string]string, effectiveAt, submittedAt time.Time) error {
 	raw, err := json.Marshal(attrs)
 	if err != nil {
 		return err
@@ -631,6 +630,6 @@ func nullInt64(value *int64) any {
 	return *value
 }
 
-func stringsContains(raw string, needle string) bool {
+func stringsContains(raw, needle string) bool {
 	return len(raw) != 0 && len(needle) != 0 && strings.Contains(raw, needle)
 }

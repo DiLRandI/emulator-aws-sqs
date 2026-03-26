@@ -19,22 +19,24 @@ func memberWireName(reg model.Registry, memberName string, member model.Member) 
 	}
 }
 
-func collectionWireName(memberName string, shapeName string) string {
+func collectionWireName(memberName, shapeName string) string {
 	switch shapeName {
 	case "QueueAttributeMap":
 		return "Attribute"
 	case "MessageBodyAttributeMap":
 		return "MessageAttribute"
 	case "MessageSystemAttributeMap":
-		return "MessageSystemAttribute"
+		return "Attribute"
+	case "MessageSystemAttributeList":
+		return "MessageSystemAttributeName"
 	case "TagMap":
 		return "Tag"
 	}
-	if strings.HasSuffix(shapeName, "List") {
-		return strings.TrimSuffix(shapeName, "List")
+	if before, ok := strings.CutSuffix(shapeName, "List"); ok {
+		return before
 	}
-	if strings.HasSuffix(shapeName, "Map") {
-		return strings.TrimSuffix(shapeName, "Map")
+	if before, ok := strings.CutSuffix(shapeName, "Map"); ok {
+		return before
 	}
 	return singularize(memberName)
 }
