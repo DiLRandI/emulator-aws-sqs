@@ -43,7 +43,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	registry := auth.NewRegistry(cfg.AccountID)
+	registry := auth.NewRegistry(cfg.AccountID, auth.Credential{
+		AccessKeyID:     cfg.DefaultAccessKeyID,
+		SecretAccessKey: cfg.DefaultSecretAccessKey,
+		SessionToken:    cfg.DefaultSessionToken,
+		AccountID:       cfg.AccountID,
+	})
 	if err := registry.LoadFile(cfg.CredentialsFile); err != nil {
 		logger.Error("failed to load credentials", "error", err)
 		os.Exit(1)

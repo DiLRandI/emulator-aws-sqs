@@ -58,6 +58,7 @@ Implementation highlights:
 - Bash
 - Python 3
 - AWS CLI if you want to use the CLI examples or run the CLI integration suite
+- Docker and Docker Compose if you want the containerized workflow
 
 ### Build
 
@@ -107,6 +108,83 @@ aws --endpoint-url http://127.0.0.1:9324 sqs list-queues
 ```
 
 An empty successful response confirms that `sqsd` is reachable and accepting signed requests.
+
+## Run With Docker
+
+### Build the image
+
+```bash
+make docker-build
+```
+
+Default image name:
+
+- `emulator-aws-sqs:local`
+
+### Run with `docker run`
+
+```bash
+make docker-run
+make docker-logs
+make docker-stop
+```
+
+Default Docker runtime values:
+
+- endpoint: `http://127.0.0.1:9324`
+- container port: `9324`
+- Docker volume: `emulator-aws-sqs-data`
+- SQLite path inside the container: `/var/lib/sqsd/sqs.db`
+- accepted local credentials: `test` / `test`
+
+The containerized service listens on `0.0.0.0:9324` and writes queue URLs using `SQS_PUBLIC_BASE_URL`, which defaults to `http://127.0.0.1:9324`.
+
+If you publish a different host port, override the public base URL to match:
+
+```bash
+DOCKER_HOST_PORT=9444 DOCKER_PUBLIC_BASE_URL=http://127.0.0.1:9444 make docker-run
+```
+
+### Run with Compose
+
+```bash
+make docker-compose-up
+make docker-compose-logs
+make docker-compose-down
+```
+
+The Compose stack builds the same image locally, publishes the SQS endpoint to the host, and mounts a named Docker volume at `/var/lib/sqsd`.
+
+### Persistence with volumes
+
+- `make docker-run` mounts `emulator-aws-sqs-data` at `/var/lib/sqsd`
+- `make docker-compose-up` uses the same external named volume by default
+- the Makefile creates that shared Docker volume automatically before starting Compose
+- stopping the container does not remove queues or messages
+- `make docker-clean` removes containers, image, and the persisted Docker volume
+
+### Verify the containerized endpoint
+
+```bash
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_DEFAULT_REGION=us-east-1
+
+aws --endpoint-url http://127.0.0.1:9324 sqs list-queues
+```
+
+Or:
+
+```bash
+export AWS_ENDPOINT_URL_SQS=http://127.0.0.1:9324
+aws sqs list-queues
+```
+
+Run the host-side AWS CLI Docker smoke test:
+
+```bash
+make docker-test-cli
+```
 
 ## Using With AWS CLI
 
@@ -209,7 +287,9 @@ aws --endpoint-url http://127.0.0.1:9324 sqs send-message \
   --message-body "to-dlq"
 ```
 
-For a complete CLI exercise path, run [tests/aws_cli_integration.sh](/home/deleema/learning/emulator-aws-sqs/tests/aws_cli_integration.sh).
+For a complete CLI exercise path, run [tests/aws_cli_integration.sh](tests/aws_cli_integration.sh).
+
+For a short host-to-container Docker smoke flow, run [tests/aws_cli_docker_smoke.sh](tests/aws_cli_docker_smoke.sh) through `make docker-test-cli`.
 
 ## Using With AWS SDK For Go v2
 
@@ -324,6 +404,12 @@ make test-cli
 
 By default, `make test-cli` runs the CLI suite against an isolated temporary SQLite database on `http://127.0.0.1:19324`, so it does not collide with a dev server started by `make dev-up`.
 
+### Docker AWS CLI smoke test
+
+```bash
+make docker-test-cli
+```
+
 ### Everything
 
 ```bash
@@ -339,16 +425,16 @@ CLI test prerequisites:
 
 ## Repo Layout
 
-- [cmd/sqsd](/home/deleema/learning/emulator-aws-sqs/cmd/sqsd): server entrypoint
-- [internal/auth](/home/deleema/learning/emulator-aws-sqs/internal/auth): SigV4 validation and local credential registry
-- [internal/model](/home/deleema/learning/emulator-aws-sqs/internal/model): generated SQS operation and shape registry
-- [internal/protocol/json](/home/deleema/learning/emulator-aws-sqs/internal/protocol/json): AWS JSON protocol codec
-- [internal/protocol/query](/home/deleema/learning/emulator-aws-sqs/internal/protocol/query): AWS Query protocol decode/encode layer
-- [internal/service](/home/deleema/learning/emulator-aws-sqs/internal/service): queue and message semantics
-- [internal/storage/sqlite](/home/deleema/learning/emulator-aws-sqs/internal/storage/sqlite): SQLite persistence layer
-- [internal/tests](/home/deleema/learning/emulator-aws-sqs/internal/tests): raw protocol, lightweight handler, and SDK integration tests
-- [tests/aws_cli_integration.sh](/home/deleema/learning/emulator-aws-sqs/tests/aws_cli_integration.sh): shell-based AWS CLI suite
-- [tools/gensqs](/home/deleema/learning/emulator-aws-sqs/tools/gensqs): botocore-to-registry generator
+- [cmd/sqsd](cmd/sqsd): server entrypoint
+- [internal/auth](internal/auth): SigV4 validation and local credential registry
+- [internal/model](internal/model): generated SQS operation and shape registry
+- [internal/protocol/json](internal/protocol/json): AWS JSON protocol codec
+- [internal/protocol/query](internal/protocol/query): AWS Query protocol decode/encode layer
+- [internal/service](internal/service): queue and message semantics
+- [internal/storage/sqlite](internal/storage/sqlite): SQLite persistence layer
+- [internal/tests](internal/tests): raw protocol, lightweight handler, and SDK integration tests
+- [tests/aws_cli_integration.sh](tests/aws_cli_integration.sh): shell-based AWS CLI suite
+- [tools/gensqs](tools/gensqs): botocore-to-registry generator
 
 ## Storage And Runtime Behavior
 
@@ -356,6 +442,7 @@ CLI test prerequisites:
 - By default, the server uses `sqs.db` in the current working directory.
 - WAL mode and foreign keys are enabled in the default DSN.
 - Queue URLs default to `http://127.0.0.1:9324/<account-id>/<queue-name>`.
+- In Docker workflows, the SQLite file lives at `/var/lib/sqsd/sqs.db` inside the container and is backed by a named Docker volume.
 
 Reset local state:
 
@@ -386,7 +473,7 @@ Known AWS-parity gaps in the current codebase:
 - Request throttling, in-flight caps, and other AWS production quotas are not fully modeled.
 - Message move task progression is request-driven. Tasks advance when API calls trigger service maintenance rather than via an autonomous scheduler loop.
 
-Those gaps are also tracked in [docs/compatibility.md](/home/deleema/learning/emulator-aws-sqs/docs/compatibility.md).
+Those gaps are also tracked in [docs/compatibility.md](docs/compatibility.md).
 
 ## Roadmap / Next Gaps
 
@@ -416,6 +503,7 @@ Useful overrides:
 ```bash
 AWS_REGION=us-west-2 SQS_PORT=9444 SQS_DB_PATH=local-dev.db make dev-up
 TEST_SQS_PORT=19444 TEST_SQS_DB_PATH=.tmp/cli-tests.db make test-cli
+DOCKER_HOST_PORT=9444 DOCKER_PUBLIC_BASE_URL=http://127.0.0.1:9444 make docker-run
 ```
 
 Focused test examples:
@@ -436,6 +524,14 @@ go run ./tools/gensqs \
 
 Additional developer docs:
 
-- [docs/development.md](/home/deleema/learning/emulator-aws-sqs/docs/development.md)
-- [docs/testing.md](/home/deleema/learning/emulator-aws-sqs/docs/testing.md)
-- [docs/compatibility.md](/home/deleema/learning/emulator-aws-sqs/docs/compatibility.md)
+- [docs/development.md](docs/development.md)
+- [docs/testing.md](docs/testing.md)
+- [docs/compatibility.md](docs/compatibility.md)
+- [docs/docker.md](docs/docker.md)
+
+## Docker Troubleshooting
+
+- If queue URLs point at the wrong host or port, override `DOCKER_PUBLIC_BASE_URL` or `SQS_PUBLIC_BASE_URL`.
+- If host port `9324` is already in use, set `DOCKER_HOST_PORT` for the Makefile Docker path or `SQS_PORT` for the Compose path.
+- If you change the accepted credential pair in the container, keep the host-side AWS CLI or SDK credentials aligned with `SQS_DEFAULT_ACCESS_KEY_ID`, `SQS_DEFAULT_SECRET_ACCESS_KEY`, and `SQS_DEFAULT_SESSION_TOKEN`.
+- If you want a clean Docker state reset, run `make docker-clean`.

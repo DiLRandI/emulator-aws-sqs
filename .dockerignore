@@ -1,0 +1,14 @@
+.git
+.github
+.dev
+bin
+docs
+tests
+tmp
+*.db
+*.db-shm
+*.db-wal
+*.log
+.DS_Store
+.idea
+.vscode

@@ -27,3 +27,6 @@ jobs:
 
       - name: Run CI workflow
         run: make ci
+
+      - name: Verify Docker image build
+        run: make docker-build

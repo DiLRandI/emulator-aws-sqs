@@ -87,6 +87,25 @@ Default behavior:
 - the script uses a temporary SQLite database unless `TEST_SQS_DB_PATH` or `SQS_DB_PATH` is set
 - this keeps the CLI suite isolated from `make dev-up`
 
+### 5. Docker AWS CLI smoke test
+
+File:
+
+- [tests/aws_cli_docker_smoke.sh](/home/deleema/learning/emulator-aws-sqs/tests/aws_cli_docker_smoke.sh)
+
+What it does:
+
+- starts the Compose-managed container through `make docker-test-cli`
+- uses the host AWS CLI against the containerized endpoint
+- verifies container reachability, signing, queue creation, listing, and a send/receive flow
+- uses the same named Docker volume that `make docker-run` uses, so the container workflows stay consistent
+
+Run:
+
+```bash
+make docker-test-cli
+```
+
 ## Recommended commands
 
 Run all Go tests:
@@ -106,6 +125,13 @@ Run everything including the AWS CLI suite:
 ```bash
 make test-all
 make ci
+```
+
+Run the Docker-specific smoke path:
+
+```bash
+make docker-build
+make docker-test-cli
 ```
 
 ## Interpreting failures
@@ -157,6 +183,7 @@ The script prints the stage it is running. Failures are intended to be loud and 
 - Bash
 - Python 3
 - AWS CLI for `make test-cli` and `make ci`
+- Docker and Docker Compose for `make docker-build`, `make docker-compose-up`, and `make docker-test-cli`
 
 ## CI path
 
@@ -164,6 +191,7 @@ The GitHub Actions workflow runs:
 
 ```bash
 make ci
+make docker-build
 ```
 
 That includes:
@@ -173,3 +201,4 @@ That includes:
 - `go vet`
 - all Go tests
 - AWS CLI integration tests
+- Docker image build verification

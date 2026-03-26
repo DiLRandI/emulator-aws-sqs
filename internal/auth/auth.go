@@ -34,17 +34,36 @@ type Registry struct {
 	credentials map[string]Credential
 }
 
-func NewRegistry(defaultAccountID string) *Registry {
+func NewRegistry(defaultAccountID string, seed ...Credential) *Registry {
 	registry := &Registry{
 		credentials: map[string]Credential{},
 	}
-	registry.Put(Credential{
+	cred := Credential{
 		AccessKeyID:     "test",
 		SecretAccessKey: "test",
 		AccountID:       defaultAccountID,
 		PrincipalARN:    fmt.Sprintf("arn:aws:iam::%s:user/local-test", defaultAccountID),
 		PrincipalID:     "LOCALTEST",
-	})
+	}
+	if len(seed) > 0 {
+		cred = seed[0]
+		if cred.AccessKeyID == "" {
+			cred.AccessKeyID = "test"
+		}
+		if cred.SecretAccessKey == "" {
+			cred.SecretAccessKey = "test"
+		}
+		if cred.AccountID == "" {
+			cred.AccountID = defaultAccountID
+		}
+		if cred.PrincipalARN == "" {
+			cred.PrincipalARN = fmt.Sprintf("arn:aws:iam::%s:user/local-test", cred.AccountID)
+		}
+		if cred.PrincipalID == "" {
+			cred.PrincipalID = "LOCALTEST"
+		}
+	}
+	registry.Put(cred)
 	return registry
 }
 

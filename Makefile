@@ -5,6 +5,7 @@ SHELL := /usr/bin/env bash
 
 GO ?= go
 BASH ?= bash
+DOCKER ?= docker
 
 BIN_DIR ?= bin
 BINARY ?= $(BIN_DIR)/sqsd
@@ -28,12 +29,22 @@ TEST_SQS_PORT ?= 19324
 TEST_SQS_ENDPOINT ?= http://$(TEST_SQS_HOST):$(TEST_SQS_PORT)
 TEST_SQS_DB_PATH ?=
 
+DOCKER_IMAGE ?= emulator-aws-sqs:local
+DOCKER_CONTAINER ?= emulator-aws-sqs
+DOCKER_VOLUME ?= emulator-aws-sqs-data
+DOCKER_COMPOSE_FILE ?= compose.yaml
+DOCKER_HOST_PORT ?= 9324
+DOCKER_ENDPOINT ?= http://127.0.0.1:$(DOCKER_HOST_PORT)
+DOCKER_PUBLIC_BASE_URL ?= $(DOCKER_ENDPOINT)
+DOCKER_SQLITE_PATH ?= /var/lib/sqsd/sqs.db
+COMPOSE ?= $(DOCKER) compose -f $(DOCKER_COMPOSE_FILE)
+
 UNIT_TEST_RUN ?= Test(CreateQueueJSONAndListQuery|SetAndGetQueueAttributesJSON)
 INTEGRATION_TEST_RUN ?= Test(Raw|SDK)
 
 GOFMT_DIRS := cmd internal tests tools
 
-.PHONY: help build run test test-unit test-integration test-cli test-all fmt lint tidy clean ci dev-up dev-down fmt-check tidy-check
+.PHONY: help build run test test-unit test-integration test-cli test-all fmt lint tidy clean ci dev-up dev-down docker-build docker-run docker-stop docker-logs docker-test-cli docker-compose-up docker-compose-down docker-compose-logs docker-clean fmt-check tidy-check docker-wait
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; print "Targets:"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -80,6 +91,7 @@ fmt: ## Format Go sources with gofmt
 lint: ## Run minimal lint checks: go vet and shell syntax validation
 	$(GO) vet ./...
 	$(BASH) -n ./tests/aws_cli_integration.sh
+	$(BASH) -n ./tests/aws_cli_docker_smoke.sh
 
 tidy: ## Run go mod tidy
 	$(GO) mod tidy
@@ -145,6 +157,82 @@ dev-down: ## Stop the background dev server started by make dev-up
 		echo "sqsd is not running"; \
 	fi
 
+docker-build: ## Build the container image
+	$(DOCKER) build -t "$(DOCKER_IMAGE)" .
+
+docker-run: docker-build ## Run the containerized sqsd service in the background
+	-@$(DOCKER) rm -f "$(DOCKER_CONTAINER)" >/dev/null 2>&1 || true
+	@$(DOCKER) volume create "$(DOCKER_VOLUME)" >/dev/null
+	$(DOCKER) run -d --name "$(DOCKER_CONTAINER)" \
+		-p "$(DOCKER_HOST_PORT):9324" \
+		-v "$(DOCKER_VOLUME)":/var/lib/sqsd \
+		-e SQS_LISTEN_ADDR="0.0.0.0:9324" \
+		-e SQS_PUBLIC_BASE_URL="$(DOCKER_PUBLIC_BASE_URL)" \
+		-e SQS_REGION="$(AWS_REGION)" \
+		-e SQS_ALLOWED_REGIONS="$(AWS_REGION)" \
+		-e SQS_ACCOUNT_ID="000000000000" \
+		-e SQS_SQLITE_PATH="$(DOCKER_SQLITE_PATH)" \
+		-e SQS_AUTH_MODE="strict" \
+		-e SQS_DEFAULT_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
+		-e SQS_DEFAULT_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
+		-e SQS_DEFAULT_SESSION_TOKEN="$(AWS_SESSION_TOKEN)" \
+		"$(DOCKER_IMAGE)" >/dev/null
+	@$(MAKE) docker-wait DOCKER_ENDPOINT="$(DOCKER_ENDPOINT)" >/dev/null
+	@echo "sqsd container started at $(DOCKER_ENDPOINT)"
+	@echo "container: $(DOCKER_CONTAINER)"
+	@echo "volume: $(DOCKER_VOLUME)"
+
+docker-stop: ## Stop and remove the container started by make docker-run
+	-@$(DOCKER) rm -f "$(DOCKER_CONTAINER)" >/dev/null 2>&1 || true
+	@echo "container removed: $(DOCKER_CONTAINER)"
+
+docker-logs: ## Tail logs from the container started by make docker-run
+	$(DOCKER) logs -f "$(DOCKER_CONTAINER)"
+
+docker-test-cli: ## Run a host AWS CLI smoke test against the compose-managed container
+	@trap '$(MAKE) docker-compose-down >/dev/null' EXIT; \
+	$(MAKE) docker-compose-up >/dev/null; \
+	AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
+	AWS_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
+	AWS_SESSION_TOKEN="$(AWS_SESSION_TOKEN)" \
+	AWS_REGION="$(AWS_REGION)" \
+	SQS_ENDPOINT="$(DOCKER_ENDPOINT)" \
+	./tests/aws_cli_docker_smoke.sh
+
+docker-compose-up: ## Build and start the compose stack in the background
+	@$(DOCKER) volume create "$(DOCKER_VOLUME)" >/dev/null
+	SQS_PORT="$(DOCKER_HOST_PORT)" \
+	SQS_PUBLIC_BASE_URL="$(DOCKER_PUBLIC_BASE_URL)" \
+	SQS_ALLOWED_REGIONS="$(AWS_REGION)" \
+	AWS_REGION="$(AWS_REGION)" \
+	AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
+	AWS_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
+	AWS_SESSION_TOKEN="$(AWS_SESSION_TOKEN)" \
+	DOCKER_IMAGE="$(DOCKER_IMAGE)" \
+	DOCKER_VOLUME="$(DOCKER_VOLUME)" \
+	$(COMPOSE) up -d --build
+	@$(MAKE) docker-wait DOCKER_ENDPOINT="$(DOCKER_ENDPOINT)" >/dev/null
+	@echo "compose stack started at $(DOCKER_ENDPOINT)"
+
+docker-compose-down: ## Stop and remove the compose stack
+	SQS_PORT="$(DOCKER_HOST_PORT)" \
+	DOCKER_IMAGE="$(DOCKER_IMAGE)" \
+	DOCKER_VOLUME="$(DOCKER_VOLUME)" \
+	$(COMPOSE) down --remove-orphans
+
+docker-compose-logs: ## Tail logs from the compose-managed service
+	SQS_PORT="$(DOCKER_HOST_PORT)" \
+	DOCKER_IMAGE="$(DOCKER_IMAGE)" \
+	DOCKER_VOLUME="$(DOCKER_VOLUME)" \
+	$(COMPOSE) logs -f sqsd
+
+docker-clean: ## Remove Docker containers, image, and persisted Docker volume
+	-@$(MAKE) docker-stop >/dev/null 2>&1 || true
+	-@SQS_PORT="$(DOCKER_HOST_PORT)" DOCKER_IMAGE="$(DOCKER_IMAGE)" DOCKER_VOLUME="$(DOCKER_VOLUME)" $(COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true
+	-@$(DOCKER) image rm "$(DOCKER_IMAGE)" >/dev/null 2>&1 || true
+	-@$(DOCKER) volume rm "$(DOCKER_VOLUME)" >/dev/null 2>&1 || true
+	@echo "docker artifacts cleaned"
+
 fmt-check: ## Check that Go sources are formatted
 	@unformatted="$$(find $(GOFMT_DIRS) -type f -name '*.go' -print0 | xargs -0 gofmt -l)"; \
 	if [[ -n "$$unformatted" ]]; then \
@@ -167,3 +255,13 @@ tidy-check: ## Check that go.mod and go.sum are already tidy
 	mv "$$tmpdir/go.sum" go.sum; \
 	rmdir "$$tmpdir"; \
 	exit $$status
+
+docker-wait:
+	@for _ in $$(seq 1 60); do \
+		if curl -s -o /dev/null -X POST "$(DOCKER_ENDPOINT)/" 2>/dev/null; then \
+			exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "sqsd did not become reachable at $(DOCKER_ENDPOINT)" >&2; \
+	exit 1

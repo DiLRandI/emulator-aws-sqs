@@ -1,0 +1,28 @@
+services:
+  sqsd:
+    image: ${DOCKER_IMAGE:-emulator-aws-sqs:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${SQS_PORT:-9324}:9324"
+    environment:
+      SQS_LISTEN_ADDR: "0.0.0.0:9324"
+      SQS_PUBLIC_BASE_URL: "${SQS_PUBLIC_BASE_URL:-http://127.0.0.1:9324}"
+      SQS_REGION: "${AWS_REGION:-us-east-1}"
+      SQS_ALLOWED_REGIONS: "${SQS_ALLOWED_REGIONS:-us-east-1}"
+      SQS_ACCOUNT_ID: "${SQS_ACCOUNT_ID:-000000000000}"
+      SQS_SQLITE_PATH: "/var/lib/sqsd/sqs.db"
+      SQS_AUTH_MODE: "${SQS_AUTH_MODE:-strict}"
+      SQS_CREDENTIALS_FILE: "${SQS_CREDENTIALS_FILE:-}"
+      SQS_DEFAULT_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-test}"
+      SQS_DEFAULT_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-test}"
+      SQS_DEFAULT_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      SQS_LOG_LEVEL: "${SQS_LOG_LEVEL:-INFO}"
+    volumes:
+      - sqsd-data:/var/lib/sqsd
+
+volumes:
+  sqsd-data:
+    external: true
+    name: ${DOCKER_VOLUME:-emulator-aws-sqs-data}

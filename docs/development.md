@@ -35,6 +35,11 @@ make lint
 make test
 make test-integration
 make test-cli
+make docker-build
+make docker-compose-up
+make docker-compose-down
+make docker-test-cli
+make docker-clean
 make ci
 ```
 
@@ -77,7 +82,10 @@ go test ./internal/tests -run TestSDKFIFOAndDLQResolverV2 -v
 - Use `SQS_LOG_LEVEL=DEBUG make run` for more verbose server logs.
 - Run a single raw protocol test with `go test ./internal/tests -run TestRaw -v`.
 - Reproduce CLI behavior directly with [tests/aws_cli_integration.sh](/home/deleema/learning/emulator-aws-sqs/tests/aws_cli_integration.sh).
+- Reproduce the host-to-container AWS CLI path with [tests/aws_cli_docker_smoke.sh](/home/deleema/learning/emulator-aws-sqs/tests/aws_cli_docker_smoke.sh).
 - If local state looks wrong, remove `sqs.db`, `sqs.db-shm`, and `sqs.db-wal`, or run `make clean`.
+- If Docker state looks wrong, run `make docker-clean`.
+- `make docker-run` and `make docker-compose-up` share the same named Docker volume by default.
 
 ## Environment variables
 
@@ -88,9 +96,13 @@ The most useful runtime variables are:
 - `SQS_REGION`
 - `SQS_ALLOWED_REGIONS`
 - `SQS_ACCOUNT_ID`
+- `SQS_SQLITE_PATH`
 - `SQS_SQLITE_DSN`
 - `SQS_AUTH_MODE`
 - `SQS_CREDENTIALS_FILE`
+- `SQS_DEFAULT_ACCESS_KEY_ID`
+- `SQS_DEFAULT_SECRET_ACCESS_KEY`
+- `SQS_DEFAULT_SESSION_TOKEN`
 - `SQS_LOG_LEVEL`
 - `SQS_CREATE_PROPAGATION`
 - `SQS_DELETE_COOLDOWN`
@@ -114,12 +126,20 @@ The Makefile also exposes workflow variables with defaults:
 - `TEST_SQS_PORT`
 - `TEST_SQS_ENDPOINT`
 - `TEST_SQS_DB_PATH`
+- `DOCKER_IMAGE`
+- `DOCKER_CONTAINER`
+- `DOCKER_VOLUME`
+- `DOCKER_HOST_PORT`
+- `DOCKER_ENDPOINT`
+- `DOCKER_PUBLIC_BASE_URL`
+- `DOCKER_SQLITE_PATH`
 
 Example:
 
 ```bash
 AWS_REGION=us-west-2 SQS_PORT=9444 SQS_DB_PATH=local-dev.db make dev-up
 TEST_SQS_PORT=19444 TEST_SQS_DB_PATH=.tmp/cli-tests.db make test-cli
+DOCKER_HOST_PORT=9444 DOCKER_PUBLIC_BASE_URL=http://127.0.0.1:9444 make docker-run
 ```
 
 ## Code generation
