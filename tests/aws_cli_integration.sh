@@ -2,21 +2,27 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_DIR="$(mktemp -d)"
-BIN="$TMP_DIR/sqsd"
-DB_PATH="$TMP_DIR/sqs.db"
-LOG_PATH="$TMP_DIR/sqsd.log"
+OWN_TMP_DIR=0
+if [[ -z "${TMP_DIR:-}" ]]; then
+  TMP_DIR="$(mktemp -d)"
+  OWN_TMP_DIR=1
+fi
+BIN="${SQS_BIN:-$TMP_DIR/sqsd}"
+DB_PATH="${SQS_DB_PATH:-$TMP_DIR/sqs.db}"
+LOG_PATH="${SQS_LOG_PATH:-$TMP_DIR/sqsd.log}"
 
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]]; then
     kill "$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
-  rm -rf "$TMP_DIR"
+  if [[ "$OWN_TMP_DIR" -eq 1 ]]; then
+    rm -rf "$TMP_DIR"
+  fi
 }
 trap cleanup EXIT
 
-PORT="$(python3 - <<'PY'
+DEFAULT_PORT="$(python3 - <<'PY'
 import socket
 s = socket.socket()
 s.bind(("127.0.0.1", 0))
@@ -24,11 +30,26 @@ print(s.getsockname()[1])
 s.close()
 PY
 )"
-ENDPOINT="http://127.0.0.1:${PORT}"
+SQS_HOST="${SQS_HOST:-127.0.0.1}"
+PORT="${SQS_PORT:-$DEFAULT_PORT}"
+ENDPOINT="${SQS_ENDPOINT:-http://${SQS_HOST}:${PORT}}"
 
-export AWS_ACCESS_KEY_ID="test"
-export AWS_SECRET_ACCESS_KEY="test"
-export AWS_DEFAULT_REGION="us-east-1"
+if [[ -n "${SQS_ENDPOINT:-}" ]]; then
+  read -r SQS_HOST PORT < <(python3 - "$SQS_ENDPOINT" <<'PY'
+import sys
+from urllib.parse import urlparse
+u = urlparse(sys.argv[1])
+host = u.hostname or "127.0.0.1"
+port = u.port or (443 if u.scheme == "https" else 80)
+print(host, port)
+PY
+)
+fi
+
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
+export AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN:-}"
+export AWS_DEFAULT_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 
 json_get() {
   local json_input="$1"
@@ -95,7 +116,7 @@ echo "[cli] building sqsd"
 echo "[cli] starting sqsd on $ENDPOINT"
 (
   cd "$ROOT_DIR"
-  SQS_LISTEN_ADDR="127.0.0.1:${PORT}" \
+  SQS_LISTEN_ADDR="${SQS_HOST}:${PORT}" \
   SQS_PUBLIC_BASE_URL="$ENDPOINT" \
   SQS_SQLITE_DSN="file:${DB_PATH}?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)" \
   SQS_AUTH_MODE="strict" \
